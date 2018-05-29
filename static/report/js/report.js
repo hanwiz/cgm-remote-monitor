@@ -41,6 +41,9 @@
   };
   
   var ONE_MIN_IN_MS = 60000;
+  var prevStartday = "";
+  var prevEndday = "";
+
   
   prepareGUI();
 
@@ -206,6 +209,8 @@
       , cob : true
       , basal : true
       , scale: report_plugins.consts.scaleYFromSettings(client)
+      , starttime: 0
+      , endtime: 0
       , units: client.settings.units
     };
 
@@ -229,7 +234,11 @@
     options.order = ( $('#rp_oldestontop').is(':checked') ? report_plugins.consts.ORDER_OLDESTONTOP : report_plugins.consts.ORDER_NEWESTONTOP );
     options.width = parseInt($('#rp_size :selected').attr('x'));
     options.height = parseInt($('#rp_size :selected').attr('y'));
-    
+    options.startday = $('#rp_from').val();
+    options.endday = $('#rp_to').val();
+    options.starttime = $('#rp_start_time').val();
+    options.endtime = $('#rp_end_time').val();
+
     var matchesneeded = 0;
 
     // date range
@@ -239,7 +248,7 @@
         var from = moment.tz($('#rp_from').val().replace(/\//g,'-') + 'T00:00:00',zone);
         var to = moment.tz($('#rp_to').val().replace(/\//g,'-') + 'T23:59:59',zone);
         timerange = '&find[created_at][$gte]='+from.toISOString()+'&find[created_at][$lt]='+to.toISOString();
-        //console.log($('#rp_from').val(),$('#rp_to').val(),zone,timerange);
+        console.log($('#rp_from').val(),$('#rp_to').val(),zone,timerange);
         while (from <= to) {
           if (daystoshow[from.format('YYYY-MM-DD')]) { 
             daystoshow[from.format('YYYY-MM-DD')]++;
@@ -385,11 +394,15 @@
       var count = 0;
       sorteddaystoshow = [];
       $('#info').html('<b>'+translate('Loading')+' ...</b>');
+      console.log("DaysToShow: ", daystoshow);
       for (var d in daystoshow) {
         if (count < maxdays) {
           $('#info').append($('<div id="info-' + d + '"></div>'));
           count++;
           loadData(d, options, dataLoadedCallback);
+	  prevStartday = options.startday;
+	  prevEndday = options.endday;
+	  console.log("daystoshow: ", count, d);
         } else {
           $('#info').append($('<div>'+d+' '+translate('not displayed')+'.</div>'));
           delete daystoshow[d];
@@ -545,7 +558,10 @@
   
   function loadData(day, options, callback) {
     // check for loaded data
-    if ((options.openAps || options.iob || options.cob) && datastorage[day] && !datastorage[day].devicestatus.length) {
+    if (day === options.startday || day === options.endday || day == prevStartday || day === prevEndday) {
+      // startday and endday should load everytime or needs other optimization
+      console.log(datastorage);
+    } else if ((options.openAps || options.iob || options.cob) && datastorage[day] && !datastorage[day].devicestatus.length) {
       // OpenAPS requested but data not loaded. Load anyway ...
     } else if (datastorage[day] && day !== moment().format('YYYY-MM-DD')) {
       callback(day);
@@ -559,13 +575,39 @@
       , calData = []
       ;
     var from;
-    if (client.sbx.data.profile.getTimezone()) {
-      from = moment(day).tz(client.sbx.data.profile.getTimezone()).startOf('day').format('x');
+    var starting;
+    var nextday;
+    var zone = client.sbx.data.profile.getTimezone();
+
+    // add starttime and endtime
+    if (day == options.startday) {
+    	starting = day + 'T' + options.starttime;
+    } else
+    	starting = day;
+
+    if (day == options.endday) {
+    	nextday = day + 'T' + options.endtime;
     } else {
-      from = moment(day).startOf('day').format('x');
+    	nextday = moment(day).add(1, 'days').format("YYYY-MM-DD");
     }
+
+    from = moment(starting).tz(zone).format('x');
     from = parseInt(from);
-    var to = from + 1000 * 60 * 60 * 24;
+    console.log("FROM: ", from, " ZONE: ", zone);
+
+/*
+    if (client.sbx.data.profile.getTimezone()) {
+       from = moment(day).tz(client.sbx.data.profile.getTimezone()).startOf('day').format('x');
+    } else {
+       from = moment(day).startOf('day').format('x');
+    }
+*/
+
+    from = parseInt(from);
+    //var to = from + 1000 * 60 * 60 * 24;
+    var to = moment.tz(nextday, zone).format('x');
+    to = parseInt(to);
+    console.log("FROM: ", from, " TO: ", to);
 
     function loadCGMData() {
       if (daystoshow[day].treatmentsonly) {
@@ -632,7 +674,9 @@
       if (!datastorage.profileSwitchTreatments)
         datastorage.profileSwitchTreatments = [];
       $('#info-' + day).html('<b>'+translate('Loading treatments data of')+' '+day+' ...</b>');
-      var tquery = '?find[created_at][$gte]='+new Date(from).toISOString()+'&find[created_at][$lt]='+new Date(to).toISOString();
+      var tquery = '?find[created_at][$gte]='+moment(from).tz(zone).format("YYYY-MM-DDTHH:mm")+'&find[created_at][$lt]='+moment(to).tz(zone).format("YYYY-MM-DDTHH:mm");
+      //var tquery = '?find[created_at][$gte]='+new Date(from).toISOString()+'&find[created_at][$lt]='+new Date(to).toISOString();
+      console.log("Treatment QUERY : " , tquery);
       return $.ajax('/api/v1/treatments.json'+tquery, {
         headers: client.headers()
         , success: function (xhr) {
@@ -665,16 +709,20 @@
         data.devicestatus = [];
         return $.Deferred().resolve();
       }
-      if(options.iob || options.cob || options.openAps) {
+      if(true || options.iob || options.cob || options.openAps) {
         $('#info-' + day).html('<b>'+translate('Loading device status data of')+' '+day+' ...</b>');
+        //var tquery = '?find[created_at][$gte]='+moment(from).tz(zone).format("YYYY-MM-DDTHH:mm")+'&find[created_at][$lt]='+moment(to).tz(zone).format("YYYY-MM-DDTHH:mm") + '&count=10000';
         var tquery = '?find[created_at][$gte]=' + new Date(from).toISOString() + '&find[created_at][$lt]=' + new Date(to).toISOString() + '&count=10000';
+        console.log("DeviceStatus QUERY : " , tquery);
         return $.ajax('/api/v1/devicestatus.json'+tquery, {
           headers: client.headers()
           , success: function (xhr) {
             data.devicestatus = xhr.map(function (devicestatus) {
               devicestatus.mills = new Date(devicestatus.timestamp || devicestatus.created_at).getTime();
+	      // console.log("DeviceStatus TIMESTAMP: ", devicestatus.created_at);
               return devicestatus;
             });
+            data.devicestatus.sort(function(a, b) { return a.mills - b.mills; });
           }
         });
       } else {
