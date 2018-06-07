@@ -495,9 +495,12 @@
     datastorage.devicestatus = [];
     datastorage.combobolusTreatments = [];
     datastorage.tempbasalTreatments = [];
+    console.log("showreports: ", daystoshow);
     Object.keys(daystoshow).forEach( function eachDay(day) {
       datastorage.treatments = datastorage.treatments.concat(datastorage[day].treatments);
-      datastorage.devicestatus = datastorage.devicestatus.concat(datastorage[day].devicestatus);
+      if (!daystoshow[day].treatmentsonly) {
+        datastorage.devicestatus = datastorage.devicestatus.concat(datastorage[day].devicestatus);
+      }
       datastorage.combobolusTreatments = datastorage.combobolusTreatments.concat(datastorage[day].combobolusTreatments);
       datastorage.tempbasalTreatments = datastorage.tempbasalTreatments.concat(datastorage[day].tempbasalTreatments);
     });
